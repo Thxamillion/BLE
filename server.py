@@ -1,7 +1,5 @@
 import asyncio
-from bleak import BleakServer
-from bleak.backends.characteristic import BleakGATTCharacteristic
-from bleak.backends.service import BleakGATTService
+from aioble import Service, Characteristic, CharacteristicFlags
 import pyaudio
 import wave
 import os
@@ -17,8 +15,8 @@ CHARACTERISTIC_UUID = "abcdef01-1234-5678-1234-56789abcdef0"
 CHUNK = 1024
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-RATE = 44100  # Better quality for transcription
-RECORD_SECONDS = 30  # Record in 30-second segments
+RATE = 44100
+RECORD_SECONDS = 30
 OUTPUT_DIR = "recordings"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -38,7 +36,6 @@ class AudioRecorder:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = os.path.join(OUTPUT_DIR, f"audio_{timestamp}.wav")
             
-            # Open audio stream
             stream = self.p.open(format=FORMAT,
                                channels=CHANNELS,
                                rate=RATE,
@@ -48,18 +45,15 @@ class AudioRecorder:
             print(f"Recording: {filename}")
             frames = []
 
-            # Record audio
             for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
                 if not self.is_recording:
                     break
                 data = stream.read(CHUNK)
                 frames.append(data)
 
-            # Stop and close the stream
             stream.stop_stream()
             stream.close()
 
-            # Save the audio file
             wf = wave.open(filename, 'wb')
             wf.setnchannels(CHANNELS)
             wf.setsampwidth(self.p.get_sample_size(FORMAT))
@@ -67,7 +61,6 @@ class AudioRecorder:
             wf.writeframes(b''.join(frames))
             wf.close()
 
-            # Add file to queue for transmission
             file_queue.put(filename)
             print(f"Saved: {filename}")
 
@@ -75,65 +68,57 @@ class AudioRecorder:
         self.is_recording = False
         self.p.terminate()
 
-async def send_file_data(server, characteristic):
-    while True:
-        try:
-            if not file_queue.empty():
-                filename = file_queue.get()
-                with open(filename, 'rb') as f:
-                    file_data = f.read()
-                    
-                    # Send file size first (4 bytes)
-                    size_bytes = len(file_data).to_bytes(4, 'big')
-                    await server.notify(None, characteristic, size_bytes)
-                    await asyncio.sleep(0.1)  # Small delay
-
-                    # Send file data in chunks
-                    chunk_size = 512  # Larger chunks since we're not streaming
-                    for i in range(0, len(file_data), chunk_size):
-                        chunk = file_data[i:i + chunk_size]
-                        await server.notify(None, characteristic, chunk)
-                        await asyncio.sleep(0.01)  # Small delay between chunks
-
-                    print(f"Sent file: {filename}")
-                    
-                    # Optionally, delete the file after sending
-                    # os.remove(filename)
-            
-            await asyncio.sleep(1)
-        except Exception as e:
-            print(f"Send error: {e}")
+async def handle_read(characteristic: Characteristic, **kwargs):
+    if not file_queue.empty():
+        filename = file_queue.get()
+        with open(filename, 'rb') as f:
+            data = f.read()
+            # Optionally delete the file after reading
+            # os.remove(filename)
+            return data
+    return b''
 
 async def main():
-    server = BleakServer()
+    # Create service
+    service = Service(SERVICE_UUID)
     
-    # Create service and characteristic
-    service = BleakGATTService(SERVICE_UUID)
-    characteristic = BleakGATTCharacteristic(
+    # Create characteristic
+    char = Characteristic(
         CHARACTERISTIC_UUID,
-        ["read", "notify"],
-        description="Audio File Transfer"
+        CharacteristicFlags.READ | CharacteristicFlags.NOTIFY,
+        read_handler=handle_read
     )
-    service.add_characteristic(characteristic)
-    server.add_service(service)
+    service.add_characteristic(char)
 
-    # Start audio recording
+    # Start advertising
+    advertisement = Advertisement()
+    advertisement.complete_name = "AudioRecorder"
+    advertisement.service_uuids = [SERVICE_UUID]
+
+    # Start the recorder
     recorder = AudioRecorder()
     recorder.start_recording()
 
-    # Start BLE server
-    await server.start()
-    print("BLE server running...")
-
-    # Start sending files
-    await send_file_data(server, characteristic)
-
-    try:
-        while True:
-            await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        recorder.stop_recording()
-        await server.stop()
+    async with await aioble.advertise(advertisement, [service]) as connection:
+        print("BLE server running...")
+        try:
+            while True:
+                if not file_queue.empty():
+                    filename = file_queue.get()
+                    with open(filename, 'rb') as f:
+                        data = f.read()
+                        # Send in chunks
+                        chunk_size = 512
+                        for i in range(0, len(data), chunk_size):
+                            chunk = data[i:i + chunk_size]
+                            await char.notify(chunk)
+                            await asyncio.sleep(0.01)
+                        print(f"Sent file: {filename}")
+                        # Optionally delete the file after sending
+                        # os.remove(filename)
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            recorder.stop_recording()
 
 if __name__ == "__main__":
     asyncio.run(main())
