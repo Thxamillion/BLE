@@ -7,13 +7,13 @@ import pyaudio
 import wave
 from dbus_next.aio import MessageBus
 from dbus_next.service import ServiceInterface, method, dbus_property, signal, Variant
-from dbus_next.constants import PropertyAccess
+from dbus_next.constants import BusType, PropertyAccess
 
 # Audio settings
 CHUNK = 4096
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-RATE = 16000
+RATE = 44100
 RECORD_SECONDS = 30
 OUTPUT_DIR = "recordings"
 
@@ -126,7 +126,7 @@ class GATTCharacteristic(ServiceInterface):
         print("Notifications stopped")
 
 async def setup_bluez():
-    bus = await MessageBus(bus_type=MessageBusType.SYSTEM).connect()
+    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
 
     # Register the service
     service = GATTService()
