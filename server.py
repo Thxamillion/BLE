@@ -1,15 +1,13 @@
 import asyncio
-from aiobleserver import BLEServer, Service, Characteristic, GATT_READABLE
-import pyaudio
-import wave
 import os
 import datetime
 import threading
 import queue
-
-# BLE Service and Characteristic UUIDs
-SERVICE_UUID = "12345678-1234-5678-1234-56789abcdef0"
-CHARACTERISTIC_UUID = "abcdef01-1234-5678-1234-56789abcdef0"
+import pyaudio
+import wave
+from dbus_next.aio import MessageBus
+from dbus_next.service import ServiceInterface, method, dbus_property, signal, Variant
+from dbus_next.constants import PropertyAccess
 
 # Audio settings
 CHUNK = 1024
@@ -68,59 +66,94 @@ class AudioRecorder:
         self.is_recording = False
         self.p.terminate()
 
-async def handle_read(connection, characteristic):
-    if not file_queue.empty():
-        filename = file_queue.get()
-        with open(filename, 'rb') as f:
-            data = f.read()
-            # Optionally delete the file after reading
-            # os.remove(filename)
-            return data
-    return b''
+class GATTService(ServiceInterface):
+    def __init__(self):
+        super().__init__('org.bluez.GattService1')
+        self._uuid = "12345678-1234-5678-1234-56789abcdef0"
+        self._primary = True
+
+    @dbus_property(access=PropertyAccess.READ)
+    def UUID(self) -> 's':
+        return self._uuid
+
+    @dbus_property(access=PropertyAccess.READ)
+    def Primary(self) -> 'b':
+        return self._primary
+
+    @dbus_property(access=PropertyAccess.READ)
+    def Characteristics(self) -> 'ao':
+        return ['/org/bluez/example/characteristic0']
+
+class GATTCharacteristic(ServiceInterface):
+    def __init__(self):
+        super().__init__('org.bluez.GattCharacteristic1')
+        self._uuid = "abcdef01-1234-5678-1234-56789abcdef0"
+        self._flags = ['read', 'notify']
+        self._service = '/org/bluez/example/service0'
+        self._value = []
+
+    @dbus_property(access=PropertyAccess.READ)
+    def UUID(self) -> 's':
+        return self._uuid
+
+    @dbus_property(access=PropertyAccess.READ)
+    def Service(self) -> 'o':
+        return self._service
+
+    @dbus_property(access=PropertyAccess.READ)
+    def Flags(self) -> 'as':
+        return self._flags
+
+    @method()
+    def ReadValue(self, options: 'a{sv}') -> 'ay':
+        if not file_queue.empty():
+            filename = file_queue.get()
+            try:
+                with open(filename, 'rb') as f:
+                    data = f.read(512)  # Read in chunks of 512 bytes
+                    self._value = list(data)
+                    return self._value
+            except FileNotFoundError:
+                print(f"File not found: {filename}")
+        return []
+
+    @method()
+    def StartNotify(self):
+        print("Notifications started")
+
+    @method()
+    def StopNotify(self):
+        print("Notifications stopped")
+
+async def setup_bluez():
+    bus = await MessageBus(system=True).connect()
+
+    # Register the service
+    service = GATTService()
+    bus.export('/org/bluez/example/service0', service)
+
+    # Register the characteristic
+    characteristic = GATTCharacteristic()
+    bus.export('/org/bluez/example/characteristic0', characteristic)
+
+    return bus
 
 async def main():
-    # Create BLE server
-    ble = BLEServer("AudioRecorder")
-    
-    # Create service
-    service = Service(SERVICE_UUID)
-    
-    # Create characteristic
-    char = Characteristic(
-        CHARACTERISTIC_UUID,
-        GATT_READABLE,
-        handle_read
-    )
-    service.add_characteristic(char)
-    ble.add_service(service)
-
-    # Start the recorder
+    # Start the audio recorder
     recorder = AudioRecorder()
     recorder.start_recording()
 
-    # Start the BLE server
-    await ble.start()
-    print("BLE server running...")
-
+    # Setup D-Bus and BlueZ
+    bus = await setup_bluez()
+    
+    print("BLE GATT server running...")
+    
     try:
         while True:
-            if not file_queue.empty():
-                filename = file_queue.get()
-                with open(filename, 'rb') as f:
-                    data = f.read()
-                    # Send in chunks
-                    chunk_size = 512
-                    for i in range(0, len(data), chunk_size):
-                        chunk = data[i:i + chunk_size]
-                        await ble.notify_all(SERVICE_UUID, CHARACTERISTIC_UUID, chunk)
-                        await asyncio.sleep(0.01)
-                    print(f"Sent file: {filename}")
-                    # Optionally delete the file after sending
-                    # os.remove(filename)
             await asyncio.sleep(1)
     except KeyboardInterrupt:
         recorder.stop_recording()
-        await ble.stop()
+        print("Server stopped")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())
