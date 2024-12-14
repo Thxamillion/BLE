@@ -1,7 +1,5 @@
 import asyncio
-from aioble.server import Service, Characteristic, CharacteristicFlags
-from aioble.advertisement import Advertisement
-import aioble
+from aiobleserver import BLEServer, Service, Characteristic, GATT_READABLE
 import pyaudio
 import wave
 import os
@@ -70,7 +68,7 @@ class AudioRecorder:
         self.is_recording = False
         self.p.terminate()
 
-async def handle_read(characteristic: Characteristic, **kwargs):
+async def handle_read(connection, characteristic):
     if not file_queue.empty():
         filename = file_queue.get()
         with open(filename, 'rb') as f:
@@ -81,46 +79,48 @@ async def handle_read(characteristic: Characteristic, **kwargs):
     return b''
 
 async def main():
+    # Create BLE server
+    ble = BLEServer("AudioRecorder")
+    
     # Create service
     service = Service(SERVICE_UUID)
     
     # Create characteristic
     char = Characteristic(
         CHARACTERISTIC_UUID,
-        CharacteristicFlags.READ | CharacteristicFlags.NOTIFY,
-        read_handler=handle_read
+        GATT_READABLE,
+        handle_read
     )
     service.add_characteristic(char)
-
-    # Start advertising
-    advertisement = Advertisement()
-    advertisement.complete_name = "AudioRecorder"
-    advertisement.service_uuids = [SERVICE_UUID]
+    ble.add_service(service)
 
     # Start the recorder
     recorder = AudioRecorder()
     recorder.start_recording()
 
-    async with await aioble.advertise(advertisement, [service]) as connection:
-        print("BLE server running...")
-        try:
-            while True:
-                if not file_queue.empty():
-                    filename = file_queue.get()
-                    with open(filename, 'rb') as f:
-                        data = f.read()
-                        # Send in chunks
-                        chunk_size = 512
-                        for i in range(0, len(data), chunk_size):
-                            chunk = data[i:i + chunk_size]
-                            await char.notify(chunk)
-                            await asyncio.sleep(0.01)
-                        print(f"Sent file: {filename}")
-                        # Optionally delete the file after sending
-                        # os.remove(filename)
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            recorder.stop_recording()
+    # Start the BLE server
+    await ble.start()
+    print("BLE server running...")
+
+    try:
+        while True:
+            if not file_queue.empty():
+                filename = file_queue.get()
+                with open(filename, 'rb') as f:
+                    data = f.read()
+                    # Send in chunks
+                    chunk_size = 512
+                    for i in range(0, len(data), chunk_size):
+                        chunk = data[i:i + chunk_size]
+                        await ble.notify_all(SERVICE_UUID, CHARACTERISTIC_UUID, chunk)
+                        await asyncio.sleep(0.01)
+                    print(f"Sent file: {filename}")
+                    # Optionally delete the file after sending
+                    # os.remove(filename)
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        recorder.stop_recording()
+        await ble.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
