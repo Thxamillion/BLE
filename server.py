@@ -16,16 +16,16 @@ class GATTApplication(ServiceInterface):
         return {
             '/org/bluez/example/service0': {
                 'org.bluez.GattService1': {
-                    'UUID': Variant('s', "0000180a-0000-1000-8000-00805f9b34fb"),
+                    'UUID': Variant('s', "12345678-1234-5678-1234-56789abcdef0"),
                     'Primary': Variant('b', True),
                     'Characteristics': Variant('ao', ['/org/bluez/example/characteristic0'])
                 }
             },
             '/org/bluez/example/characteristic0': {
                 'org.bluez.GattCharacteristic1': {
-                    'UUID': Variant('s', "00002a50-0000-1000-8000-00805f9b34fb"),
+                    'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
                     'Service': Variant('o', '/org/bluez/example/service0'),
-                    'Flags': Variant('as', ['read', 'write', 'notify'])
+                    'Flags': Variant('as', ['read', 'notify'])
                 }
             }
         }
@@ -33,7 +33,7 @@ class GATTApplication(ServiceInterface):
 class GATTService(ServiceInterface):
     def __init__(self):
         super().__init__('org.bluez.GattService1')
-        self._uuid = "0000180a-0000-1000-8000-00805f9b34fb"
+        self._uuid = "12345678-1234-5678-1234-56789abcdef0"
         self._primary = True
 
     @dbus_property(access=PropertyAccess.READ)
@@ -51,7 +51,7 @@ class GATTService(ServiceInterface):
 class GATTCharacteristic(ServiceInterface):
     def __init__(self, recorder: AudioRecorder):
         super().__init__('org.bluez.GattCharacteristic1')
-        self._uuid = "00002a50-0000-1000-8000-00805f9b34fb"
+        self._uuid = "abcdef01-1234-5678-1234-56789abcdef0"
         self._flags = ['read', 'notify']
         self._service = '/org/bluez/example/service0'
         self._value = []
@@ -144,7 +144,7 @@ async def setup_bluez():
         def __init__(self):
             super().__init__('org.bluez.LEAdvertisement1')
             self._type = 'peripheral'
-            self._service_uuids = ["0000180a-0000-1000-8000-00805f9b34fb"]
+            self._service_uuids = ["12345678-1234-5678-1234-56789abcdef0"]
             self._local_name = 'RaspberryPiAudio'
             self._appearance = 0x0340
             self._include_tx_power = True
@@ -258,8 +258,8 @@ async def main():
     logger.info("=" * 50)
     logger.info("BLE GATT server running...")
     logger.info("Waiting for connections...")
-    logger.info("Service UUID: 0000180a-0000-1000-8000-00805f9b34fb")
-    logger.info("Characteristic UUID: 00002a50-0000-1000-8000-00805f9b34fb")
+    logger.info("Service UUID: 12345678-1234-5678-1234-56789abcdef0")
+    logger.info("Characteristic UUID: abcdef01-1234-5678-1234-56789abcdef0")
     logger.info("=" * 50)
     
     try:
