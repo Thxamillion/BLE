@@ -192,6 +192,19 @@ class GATTCharacteristic(ServiceInterface):
 async def setup_bluez():
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     
+    # Set up the adapter
+    adapter_path = '/org/bluez/hci0'  # Default Bluetooth adapter
+    adapter = bus.get_proxy_object('org.bluez', adapter_path).get_interface('org.bluez.Adapter1')
+    
+    # Set adapter properties
+    properties = bus.get_proxy_object('org.bluez', adapter_path).get_interface('org.freedesktop.DBus.Properties')
+    await properties.call_set('org.bluez.Adapter1', 'Alias', Variant('s', 'AudioRecorder'))
+    await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', True))
+    await properties.call_set('org.bluez.Adapter1', 'Discoverable', Variant('b', True))
+    await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))  # Always discoverable
+    
+    logger.info("Bluetooth adapter configured")
+    
     # Create recorder instance
     recorder = AudioRecorder()
 
@@ -216,7 +229,13 @@ async def main():
     # Setup D-Bus and BlueZ
     bus, recorder = await setup_bluez()
     
+    logger.info("=" * 50)
     logger.info("BLE GATT server running...")
+    logger.info("Device name: AudioRecorder")
+    logger.info("Service UUID: 12345678-1234-5678-1234-56789abcdef0")
+    logger.info("Characteristic UUID: abcdef01-1234-5678-1234-56789abcdef0")
+    logger.info("Waiting for connections...")
+    logger.info("=" * 50)
     
     try:
         while True:
