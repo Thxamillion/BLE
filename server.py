@@ -25,7 +25,8 @@ class GATTApplication(ServiceInterface):
                 'org.bluez.GattCharacteristic1': {
                     'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
                     'Service': Variant('o', '/org/bluez/example/service0'),
-                    'Flags': Variant('as', ['read', 'notify'])
+                    'Flags': Variant('as', ['read', 'notify', 'indicate']),
+                    'Value': Variant('ay', [])
                 }
             }
         }
@@ -52,7 +53,7 @@ class GATTCharacteristic(ServiceInterface):
     def __init__(self, recorder: AudioRecorder):
         super().__init__('org.bluez.GattCharacteristic1')
         self._uuid = "abcdef01-1234-5678-1234-56789abcdef0"
-        self._flags = ['read', 'notify']
+        self._flags = ['read', 'notify', 'indicate']
         self._service = '/org/bluez/example/service0'
         self._value = []
         self.recorder = recorder
@@ -70,6 +71,10 @@ class GATTCharacteristic(ServiceInterface):
     @dbus_property(access=PropertyAccess.READ)
     def Flags(self) -> 'as':
         return self._flags
+
+    @dbus_property(access=PropertyAccess.READ)
+    def Value(self) -> 'ay':
+        return self._value
 
     @method()
     def ReadValue(self, options: 'a{sv}') -> 'ay':
@@ -245,6 +250,9 @@ async def setup_bluez():
     # Register the characteristic
     characteristic = GATTCharacteristic(recorder)
     bus.export('/org/bluez/example/characteristic0', characteristic)
+    logger.info(f"Registered characteristic with UUID: {characteristic._uuid}")
+    logger.info(f"Characteristic flags: {characteristic._flags}")
+    logger.info(f"Characteristic service: {characteristic._service}")
 
     logger.info("BLE services registered and advertising")
     return bus, recorder
