@@ -192,29 +192,6 @@ class GATTCharacteristic(ServiceInterface):
 async def setup_bluez():
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     
-    # Debug: Check adapter status
-    adapter_path = '/org/bluez/hci0'
-    try:
-        adapter = bus.get_proxy_object('org.bluez', adapter_path).get_interface('org.bluez.Adapter1')
-        properties = bus.get_proxy_object('org.bluez', adapter_path).get_interface('org.freedesktop.DBus.Properties')
-        
-        # Enable adapter and make it discoverable
-        await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', True))
-        await properties.call_set('org.bluez.Adapter1', 'Discoverable', Variant('b', True))
-        await properties.call_set('org.bluez.Adapter1', 'Pairable', Variant('b', True))
-        
-        logger.info("Bluetooth adapter configured successfully")
-        
-        # Get and log adapter properties
-        powered = await properties.call_get('org.bluez.Adapter1', 'Powered')
-        discoverable = await properties.call_get('org.bluez.Adapter1', 'Discoverable')
-        logger.info(f"Adapter powered: {powered.value}")
-        logger.info(f"Adapter discoverable: {discoverable.value}")
-        
-    except Exception as e:
-        logger.error(f"Failed to configure adapter: {e}")
-        raise
-
     # Create recorder instance
     recorder = AudioRecorder()
 
