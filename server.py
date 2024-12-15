@@ -244,7 +244,7 @@ async def setup_bluez():
         logger.info("Bluetooth adapter configured with pairing enabled")
         
         # Create and register advertisement
-        advertisement = Advertisement()
+        advertisement = advertisement()
         bus.export('/org/bluez/example/advertisement0', advertisement)
         await le_advertising.call_register_advertisement('/org/bluez/example/advertisement0', {})
         
