@@ -158,6 +158,7 @@ class GATTCharacteristic(ServiceInterface):
         self._value = []
         self.recorder = recorder
         self._clients = set()
+        logger.info("GATTCharacteristic initialized")
 
     @dbus_property(access=PropertyAccess.READ)
     def UUID(self) -> 's':
@@ -203,13 +204,17 @@ class GATTCharacteristic(ServiceInterface):
     def StartNotify(self):
         sender = self.get_sender()
         logger.info("=" * 50)
+        logger.info(f"StartNotify called!")
         logger.info(f"New client connected!")
         logger.info(f"Client ID: {sender}")
         logger.info("Starting audio recording...")
         logger.info("=" * 50)
         self._clients.add(sender)
         if len(self._clients) == 1:  # First client connected
+            logger.info("First client connected, starting recorder")
             self.recorder.start_recording()
+        else:
+            logger.info(f"Additional client connected. Total clients: {len(self._clients)}")
 
     @method()
     def StopNotify(self):
@@ -221,6 +226,11 @@ class GATTCharacteristic(ServiceInterface):
         self._clients.discard(sender)
         if not self._clients:  # No more clients connected
             self.recorder.stop_recording()
+
+    @method()
+    def WriteValue(self, value: 'ay', options: 'a{sv}') -> None:
+        logger.info(f"WriteValue called with: {bytes(value).decode()}")
+        return None
 
 async def setup_bluez():
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
@@ -330,11 +340,17 @@ async def main():
     # Setup D-Bus and BlueZ
     bus, recorder = await setup_bluez()
     
+    logger.info("=" * 50)
     logger.info("BLE GATT server running...")
+    logger.info("Waiting for connections...")
+    logger.info("Service UUID: 12345678-1234-5678-1234-56789abcdef0")
+    logger.info("Characteristic UUID: abcdef01-1234-5678-1234-56789abcdef0")
+    logger.info("=" * 50)
     
     try:
         while True:
-            await asyncio.sleep(1)
+            logger.debug("Server heartbeat")  # To verify the server is still running
+            await asyncio.sleep(10)  # Heartbeat every 10 seconds
     except KeyboardInterrupt:
         recorder.stop_recording()
         logger.info("Server stopped")
