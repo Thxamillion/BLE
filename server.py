@@ -106,7 +106,7 @@ class GATTApplication(ServiceInterface):
                 'org.bluez.GattCharacteristic1': {
                     'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
                     'Service': Variant('o', '/org/bluez/example/service0'),
-                    'Flags': Variant('as', ['read', 'notify'])
+                    'Flags': Variant('as', ['read', 'notify', 'encrypt-read', 'encrypt-write'])
                 }
             }
         }
@@ -195,13 +195,15 @@ async def setup_bluez():
     # Configure adapter for advertising
     adapter_path = '/org/bluez/hci0'
     
-    # Define introspection data for the adapter and LE advertising
+    # Update introspection data to include pairing properties
     adapter_introspection = '''
         <node>
             <interface name="org.bluez.Adapter1">
                 <property name="Powered" type="b" access="readwrite"/>
                 <property name="Discoverable" type="b" access="readwrite"/>
                 <property name="DiscoverableTimeout" type="u" access="readwrite"/>
+                <property name="Pairable" type="b" access="readwrite"/>
+                <property name="PairableTimeout" type="u" access="readwrite"/>
                 <property name="Alias" type="s" access="readwrite"/>
             </interface>
             <interface name="org.bluez.LEAdvertisingManager1">
@@ -230,33 +232,18 @@ async def setup_bluez():
     properties = proxy_obj.get_interface('org.freedesktop.DBus.Properties')
     le_advertising = proxy_obj.get_interface('org.bluez.LEAdvertisingManager1')
     
-    # Create an advertisement
-    class Advertisement(ServiceInterface):
-        def __init__(self):
-            super().__init__('org.bluez.LEAdvertisement1')
-            self._type = 'peripheral'
-            self._service_uuids = ["12345678-1234-5678-1234-56789abcdef0"]
-            self._local_name = 'RaspberryPiAudio'
-            
-        @dbus_property(access=PropertyAccess.READ)
-        def Type(self) -> 's':
-            return self._type
-            
-        @dbus_property(access=PropertyAccess.READ)
-        def ServiceUUIDs(self) -> 'as':
-            return self._service_uuids
-            
-        @dbus_property(access=PropertyAccess.READ)
-        def LocalName(self) -> 's':
-            return self._local_name
-    
-    # Enable adapter and advertising
+    # Enable adapter, pairing, and advertising
     try:
+        # Power on and configure adapter
         await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'Discoverable', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))
+        await properties.call_set('org.bluez.Adapter1', 'Pairable', Variant('b', True))
+        await properties.call_set('org.bluez.Adapter1', 'PairableTimeout', Variant('u', 0))
         
-        # Register and start advertisement
+        logger.info("Bluetooth adapter configured with pairing enabled")
+        
+        # Create and register advertisement
         advertisement = Advertisement()
         bus.export('/org/bluez/example/advertisement0', advertisement)
         await le_advertising.call_register_advertisement('/org/bluez/example/advertisement0', {})
