@@ -1,111 +1,10 @@
 import asyncio
 import os
-import datetime
-import threading
-import queue
-import pyaudio
-import wave
 import logging
 from dbus_next.aio import MessageBus
 from dbus_next.service import ServiceInterface, method, dbus_property, signal, Variant
 from dbus_next.constants import BusType, PropertyAccess
-
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('ble_server.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Audio settings
-CHUNK = 8192
-FORMAT = pyaudio.paInt16
-CHANNELS = 1
-RATE = 44100
-RECORD_SECONDS = 30
-OUTPUT_DIR = "recordings"
-
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-file_queue = queue.Queue()
-
-class AudioRecorder:
-    def __init__(self):
-        self.is_recording = False
-        self.p = pyaudio.PyAudio()
-        self.recording_thread = None
-
-    def start_recording(self):
-        if not self.is_recording:
-            logger.info("=" * 50)
-            logger.info("Starting audio recording")
-            logger.info("Recording settings:")
-            logger.info(f"Chunk size: {CHUNK}")
-            logger.info(f"Channels: {CHANNELS}")
-            logger.info(f"Rate: {RATE}")
-            logger.info(f"Record duration: {RECORD_SECONDS}s")
-            logger.info("=" * 50)
-            self.is_recording = True
-            self.recording_thread = threading.Thread(target=self._record_continuously)
-            self.recording_thread.start()
-        else:
-            logger.warning("Recording already in progress")
-
-    def _record_continuously(self):
-        while self.is_recording:
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = os.path.join(OUTPUT_DIR, f"audio_{timestamp}.wav")
-            
-            try:
-                stream = self.p.open(format=FORMAT,
-                                   channels=CHANNELS,
-                                   rate=RATE,
-                                   input=True,
-                                   frames_per_buffer=CHUNK)
-
-                logger.info("-" * 30)
-                logger.info(f"Started new recording segment: {filename}")
-                frames = []
-
-                for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-                    if not self.is_recording:
-                        logger.info("Recording stopped by request")
-                        break
-                    try:
-                        data = stream.read(CHUNK)
-                        frames.append(data)
-                    except Exception as e:
-                        logger.error(f"Error reading audio data: {e}")
-                        break
-
-                stream.stop_stream()
-                stream.close()
-
-                if frames:  # Only save if we actually recorded something
-                    wf = wave.open(filename, 'wb')
-                    wf.setnchannels(CHANNELS)
-                    wf.setsampwidth(self.p.get_sample_size(FORMAT))
-                    wf.setframerate(RATE)
-                    wf.writeframes(b''.join(frames))
-                    wf.close()
-
-                    file_queue.put(filename)
-                    logger.info(f"Successfully saved recording: {filename}")
-                    logger.info(f"File size: {os.path.getsize(filename)} bytes")
-                    logger.info("-" * 30)
-            except Exception as e:
-                logger.error(f"Error during recording: {e}")
-
-    def stop_recording(self):
-        if self.is_recording:
-            logger.info("Stopping audio recording")
-            self.is_recording = False
-            if self.recording_thread:
-                self.recording_thread.join()
-            self.p.terminate()
+from record import AudioRecorder, logger
 
 class GATTApplication(ServiceInterface):
     def __init__(self):
@@ -207,14 +106,19 @@ class GATTCharacteristic(ServiceInterface):
         logger.info(f"StartNotify called!")
         logger.info(f"New client connected!")
         logger.info(f"Client ID: {sender}")
-        logger.info("Starting audio recording...")
-        logger.info("=" * 50)
+        logger.info(f"Current number of clients: {len(self._clients)}")
+        logger.info(f"Is recording already?: {self.recorder.is_recording}")
         self._clients.add(sender)
         if len(self._clients) == 1:  # First client connected
             logger.info("First client connected, starting recorder")
-            self.recorder.start_recording()
+            try:
+                self.recorder.start_recording()
+                logger.info("Recording started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start recording: {e}")
         else:
             logger.info(f"Additional client connected. Total clients: {len(self._clients)}")
+        logger.info("=" * 50)
 
     @method()
     def StopNotify(self):
