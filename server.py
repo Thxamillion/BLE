@@ -195,7 +195,7 @@ async def setup_bluez():
     # Configure adapter for advertising
     adapter_path = '/org/bluez/hci0'
     
-    # Define introspection data for the adapter
+    # Define introspection data for the adapter and LE advertising
     adapter_introspection = '''
         <node>
             <interface name="org.bluez.Adapter1">
@@ -203,6 +203,12 @@ async def setup_bluez():
                 <property name="Discoverable" type="b" access="readwrite"/>
                 <property name="DiscoverableTimeout" type="u" access="readwrite"/>
                 <property name="Alias" type="s" access="readwrite"/>
+            </interface>
+            <interface name="org.bluez.LEAdvertisingManager1">
+                <method name="RegisterAdvertisement">
+                    <arg name="advertisement" type="o" direction="in"/>
+                    <arg name="options" type="a{sv}" direction="in"/>
+                </method>
             </interface>
             <interface name="org.freedesktop.DBus.Properties">
                 <method name="Get">
@@ -222,14 +228,40 @@ async def setup_bluez():
     # Get proxy object with introspection data
     proxy_obj = bus.get_proxy_object('org.bluez', adapter_path, adapter_introspection)
     properties = proxy_obj.get_interface('org.freedesktop.DBus.Properties')
+    le_advertising = proxy_obj.get_interface('org.bluez.LEAdvertisingManager1')
+    
+    # Create an advertisement
+    class Advertisement(ServiceInterface):
+        def __init__(self):
+            super().__init__('org.bluez.LEAdvertisement1')
+            self._type = 'peripheral'
+            self._service_uuids = ["12345678-1234-5678-1234-56789abcdef0"]
+            self._local_name = 'RaspberryPiAudio'
+            
+        @dbus_property(access=PropertyAccess.READ)
+        def Type(self) -> 's':
+            return self._type
+            
+        @dbus_property(access=PropertyAccess.READ)
+        def ServiceUUIDs(self) -> 'as':
+            return self._service_uuids
+            
+        @dbus_property(access=PropertyAccess.READ)
+        def LocalName(self) -> 's':
+            return self._local_name
     
     # Enable adapter and advertising
     try:
         await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'Discoverable', Variant('b', True))
-        await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))  # No timeout
-        await properties.call_set('org.bluez.Adapter1', 'Alias', Variant('s', 'RaspberryPiAudio'))
-        logger.info("Bluetooth advertising enabled")
+        await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))
+        
+        # Register and start advertisement
+        advertisement = Advertisement()
+        bus.export('/org/bluez/example/advertisement0', advertisement)
+        await le_advertising.call_register_advertisement('/org/bluez/example/advertisement0', {})
+        
+        logger.info("Bluetooth LE advertising enabled with custom service UUID")
     except Exception as e:
         logger.error(f"Failed to configure advertising: {e}")
         raise
