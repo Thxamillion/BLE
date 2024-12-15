@@ -106,7 +106,7 @@ class GATTApplication(ServiceInterface):
                 'org.bluez.GattCharacteristic1': {
                     'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
                     'Service': Variant('o', '/org/bluez/example/service0'),
-                    'Flags': Variant('as', ['read', 'notify', 'encrypt-read', 'encrypt-write'])
+                    'Flags': Variant('as', ['read', 'write', 'notify'])
                 }
             }
         }
@@ -133,7 +133,7 @@ class GATTCharacteristic(ServiceInterface):
     def __init__(self, recorder: AudioRecorder):
         super().__init__('org.bluez.GattCharacteristic1')
         self._uuid = "abcdef01-1234-5678-1234-56789abcdef0"
-        self._flags = ['read', 'notify']
+        self._flags = ['read', 'write', 'notify']
         self._service = '/org/bluez/example/service0'
         self._value = []
         self.recorder = recorder
@@ -188,51 +188,6 @@ class GATTCharacteristic(ServiceInterface):
         self._clients.discard(sender)
         if not self._clients:  # No more clients connected
             self.recorder.stop_recording()
-
-class Agent(ServiceInterface):
-    def __init__(self):
-        super().__init__('org.bluez.Agent1')
-        
-    @method()
-    def Release(self):
-        logger.info("Agent released")
-        
-    @method()
-    def RequestPinCode(self, device: 'o') -> 's':
-        logger.info(f"RequestPinCode for device: {device}")
-        return "000000"
-        
-    @method()
-    def DisplayPinCode(self, device: 'o', pincode: 's'):
-        logger.info(f"DisplayPinCode {pincode} for device: {device}")
-        
-    @method()
-    def RequestPasskey(self, device: 'o') -> 'u':
-        logger.info(f"RequestPasskey for device: {device}")
-        return 0
-        
-    @method()
-    def DisplayPasskey(self, device: 'o', passkey: 'u', entered: 'q'):
-        logger.info(f"DisplayPasskey {passkey} for device: {device}")
-        
-    @method()
-    def RequestConfirmation(self, device: 'o', passkey: 'u'):
-        logger.info(f"RequestConfirmation {passkey} for device: {device}")
-        return
-        
-    @method()
-    def RequestAuthorization(self, device: 'o'):
-        logger.info(f"RequestAuthorization for device: {device}")
-        return
-        
-    @method()
-    def AuthorizeService(self, device: 'o', uuid: 's'):
-        logger.info(f"AuthorizeService {uuid} for device: {device}")
-        return
-        
-    @method()
-    def Cancel(self):
-        logger.info("Cancel")
 
 async def setup_bluez():
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
@@ -289,15 +244,6 @@ async def setup_bluez():
                     <arg name="value" type="v" direction="in"/>
                 </method>
             </interface>
-            <interface name="org.bluez.AgentManager1">
-                <method name="RegisterAgent">
-                    <arg name="agent" type="o" direction="in"/>
-                    <arg name="capability" type="s" direction="in"/>
-                </method>
-                <method name="RequestDefaultAgent">
-                    <arg name="agent" type="o" direction="in"/>
-                </method>
-            </interface>
         </node>
     '''
     
@@ -305,7 +251,6 @@ async def setup_bluez():
     proxy_obj = bus.get_proxy_object('org.bluez', adapter_path, adapter_introspection)
     properties = proxy_obj.get_interface('org.freedesktop.DBus.Properties')
     le_advertising = proxy_obj.get_interface('org.bluez.LEAdvertisingManager1')
-    agent_manager = proxy_obj.get_interface('org.bluez.AgentManager1')
     
     # Enable adapter, pairing, and advertising
     try:
@@ -324,14 +269,6 @@ async def setup_bluez():
         await le_advertising.call_register_advertisement('/org/bluez/example/advertisement0', {})
         
         logger.info("Bluetooth LE advertising enabled with custom service UUID")
-        
-        # Register agent for handling pairing
-        agent = Agent()
-        bus.export('/org/bluez/example/agent', agent)
-        await agent_manager.call_register_agent('/org/bluez/example/agent', 'NoInputNoOutput')
-        await agent_manager.call_request_default_agent('/org/bluez/example/agent')
-        logger.info("Bluetooth agent registered for 'Just Works' pairing")
-        
     except Exception as e:
         logger.error(f"Failed to configure advertising: {e}")
         raise
