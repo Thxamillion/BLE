@@ -73,30 +73,27 @@ class GATTCharacteristic(ServiceInterface):
 
     @method()
     def ReadValue(self, options: 'a{sv}') -> 'ay':
-        if not file_queue.empty():
-            filename = file_queue.get()
+        next_file = self.recorder.get_next_file()
+        if next_file:
             try:
-                with open(filename, 'rb') as f:
-                    data = f.read(512)  # Read in chunks of 512 bytes
-                    self._value = list(data)
-                    logger.info("-" * 30)
-                    logger.info(f"Sending audio chunk")
-                    logger.info(f"File: {filename}")
-                    logger.info(f"Chunk size: {len(data)} bytes")
-                    logger.info("-" * 30)
+                with open(next_file, 'rb') as f:
+                    # Send file size first
+                    file_size = os.path.getsize(next_file)
+                    logger.info(f"Sending file: {next_file} (Size: {file_size} bytes)")
                     
-                    # Delete the file after successful read
-                    try:
-                        os.remove(filename)
-                        logger.info(f"Successfully deleted file: {filename}")
-                    except OSError as e:
-                        logger.error(f"Error deleting file {filename}: {e}")
-                    
-                    return self._value
-            except FileNotFoundError:
-                logger.error(f"File not found: {filename}")
-        else:
-            logger.debug("No audio data available to send")
+                    # Read and send in chunks
+                    chunk = f.read(512)
+                    if chunk:
+                        logger.info(f"Sending chunk of size {len(chunk)} bytes")
+                        return list(chunk)
+                    else:
+                        # File completely sent, delete it
+                        os.remove(next_file)
+                        logger.info(f"File transfer complete, deleted: {next_file}")
+                        
+            except Exception as e:
+                logger.error(f"Error sending file {next_file}: {e}")
+        
         return []
 
     @method()

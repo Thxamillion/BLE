@@ -5,6 +5,7 @@ import queue
 import pyaudio
 import wave
 import logging
+import time
 
 # Set up logging
 logging.basicConfig(
@@ -125,3 +126,21 @@ class AudioRecorder:
         if not file_queue.empty():
             return file_queue.get()
         return None 
+
+def run_recorder():
+    logger.info("Starting continuous recording service...")
+    recorder = AudioRecorder()
+    try:
+        recorder.start_recording()
+        logger.info("Recording started. Press Ctrl+C to stop.")
+        # Keep the main thread alive
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Recording service stopped by user")
+    finally:
+        recorder.stop_recording()
+        logger.info("Recording service stopped")
+
+if __name__ == "__main__":
+    run_recorder()
