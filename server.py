@@ -1,282 +1,171 @@
-import asyncio
+import bluetooth
+import threading
+import pyaudio
+import wave
 import os
+import datetime
 import logging
-from dbus_next.aio import MessageBus
-from dbus_next.service import ServiceInterface, method, dbus_property, signal, Variant
-from dbus_next.constants import BusType, PropertyAccess
-from record import AudioRecorder, logger
+import json
 
-class GATTApplication(ServiceInterface):
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+
+# Audio settings
+CHUNK = 1024
+FORMAT = pyaudio.paInt16
+CHANNELS = 1
+RATE = 44100
+RECORD_SECONDS = 30
+OUTPUT_DIR = "recordings"
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+class AudioRecorder:
     def __init__(self):
-        super().__init__('org.bluez.GattApplication1')
-        self._services = ['/org/bluez/example/service0']
+        self.is_recording = False
+        self.p = pyaudio.PyAudio()
+        self.recording_thread = None
 
-    @method()
-    def GetManagedObjects(self) -> 'a{oa{sa{sv}}}':
-        return {
-            '/org/bluez/example/service0': {
-                'org.bluez.GattService1': {
-                    'UUID': Variant('s', "12345678-1234-5678-1234-56789abcdef0"),
-                    'Primary': Variant('b', True),
-                    'Characteristics': Variant('ao', ['/org/bluez/example/characteristic0'])
-                }
-            },
-            '/org/bluez/example/characteristic0': {
-                'org.bluez.GattCharacteristic1': {
-                    'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
-                    'Service': Variant('o', '/org/bluez/example/service0'),
-                    'Flags': Variant('as', ['read', 'notify', 'indicate']),
-                    'Value': Variant('ay', [])
-                }
+    def start_recording(self):
+        if not self.is_recording:
+            self.is_recording = True
+            self.recording_thread = threading.Thread(target=self._record_continuously)
+            self.recording_thread.start()
+            logger.info("Started recording")
+
+    def _record_continuously(self):
+        while self.is_recording:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = os.path.join(OUTPUT_DIR, f"audio_{timestamp}.wav")
+            
+            try:
+                stream = self.p.open(format=FORMAT,
+                                   channels=CHANNELS,
+                                   rate=RATE,
+                                   input=True,
+                                   frames_per_buffer=CHUNK)
+
+                logger.info(f"Recording: {filename}")
+                frames = []
+
+                for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+                    if not self.is_recording:
+                        break
+                    data = stream.read(CHUNK)
+                    frames.append(data)
+
+                stream.stop_stream()
+                stream.close()
+
+                wf = wave.open(filename, 'wb')
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(self.p.get_sample_size(FORMAT))
+                wf.setframerate(RATE)
+                wf.writeframes(b''.join(frames))
+                wf.close()
+
+                logger.info(f"Saved: {filename}")
+                
+                # Send the file
+                if self.client_sock:
+                    self.send_file(filename)
+
+            except Exception as e:
+                logger.error(f"Error during recording: {str(e)}")
+
+    def stop_recording(self):
+        if self.is_recording:
+            self.is_recording = False
+            if self.recording_thread:
+                self.recording_thread.join()
+            self.p.terminate()
+            logger.info("Stopped recording")
+
+    def send_file(self, filename):
+        try:
+            # First send file metadata
+            filesize = os.path.getsize(filename)
+            metadata = {
+                "filename": os.path.basename(filename),
+                "filesize": filesize
             }
-        }
-
-class GATTService(ServiceInterface):
-    def __init__(self):
-        super().__init__('org.bluez.GattService1')
-        self._uuid = "12345678-1234-5678-1234-56789abcdef0"
-        self._primary = True
-
-    @dbus_property(access=PropertyAccess.READ)
-    def UUID(self) -> 's':
-        return self._uuid
-
-    @dbus_property(access=PropertyAccess.READ)
-    def Primary(self) -> 'b':
-        return self._primary
-
-    @dbus_property(access=PropertyAccess.READ)
-    def Characteristics(self) -> 'ao':
-        return ['/org/bluez/example/characteristic0']
-
-class GATTCharacteristic(ServiceInterface):
-    def __init__(self, recorder: AudioRecorder):
-        super().__init__('org.bluez.GattCharacteristic1')
-        self._uuid = "abcdef01-1234-5678-1234-56789abcdef0"
-        self._flags = ['read', 'notify', 'indicate']
-        self._service = '/org/bluez/example/service0'
-        self._value = []
-        self.recorder = recorder
-        self._clients = set()
-        logger.info("GATTCharacteristic initialized")
-
-    @dbus_property(access=PropertyAccess.READ)
-    def UUID(self) -> 's':
-        return self._uuid
-
-    @dbus_property(access=PropertyAccess.READ)
-    def Service(self) -> 'o':
-        return self._service
-
-    @dbus_property(access=PropertyAccess.READ)
-    def Flags(self) -> 'as':
-        return self._flags
-
-    @dbus_property(access=PropertyAccess.READ)
-    def Value(self) -> 'ay':
-        return self._value
-
-    @method()
-    def ReadValue(self, options: 'a{sv}') -> 'ay':
-        next_file = self.recorder.get_next_file()
-        if next_file:
-            try:
-                with open(next_file, 'rb') as f:
-                    # Send file size first
-                    file_size = os.path.getsize(next_file)
-                    logger.info(f"Sending file: {next_file} (Size: {file_size} bytes)")
-                    
-                    # Read and send in chunks
-                    chunk = f.read(512)
-                    if chunk:
-                        logger.info(f"Sending chunk of size {len(chunk)} bytes")
-                        return list(chunk)
-                    else:
-                        # File completely sent, delete it
-                        os.remove(next_file)
-                        logger.info(f"File transfer complete, deleted: {next_file}")
-                        
-            except Exception as e:
-                logger.error(f"Error sending file {next_file}: {e}")
-        
-        return []
-
-    @method()
-    def StartNotify(self):
-        sender = self.get_sender()
-        logger.info("=" * 50)
-        logger.info(f"StartNotify called!")
-        logger.info(f"New client connected!")
-        logger.info(f"Client ID: {sender}")
-        logger.info(f"Current number of clients: {len(self._clients)}")
-        logger.info(f"Is recording already?: {self.recorder.is_recording}")
-        self._clients.add(sender)
-        if len(self._clients) == 1:  # First client connected
-            logger.info("First client connected, starting recorder")
-            try:
-                self.recorder.start_recording()
-                logger.info("Recording started successfully")
-            except Exception as e:
-                logger.error(f"Failed to start recording: {e}")
-        else:
-            logger.info(f"Additional client connected. Total clients: {len(self._clients)}")
-        logger.info("=" * 50)
-
-    @method()
-    def StopNotify(self):
-        sender = self.get_sender()
-        logger.info("=" * 50)
-        logger.info(f"Client disconnected!")
-        logger.info(f"Client ID: {sender}")
-        logger.info("=" * 50)
-        self._clients.discard(sender)
-        if not self._clients:  # No more clients connected
-            self.recorder.stop_recording()
-
-    @method()
-    def WriteValue(self, value: 'ay', options: 'a{sv}') -> None:
-        logger.info(f"WriteValue called with: {bytes(value).decode()}")
-        return None
-
-async def setup_bluez():
-    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
-    
-    # Configure adapter for advertising
-    adapter_path = '/org/bluez/hci0'
-    
-    # Define Advertisement class
-    class Advertisement(ServiceInterface):
-        def __init__(self):
-            super().__init__('org.bluez.LEAdvertisement1')
-            self._type = 'peripheral'
-            self._service_uuids = ["12345678-1234-5678-1234-56789abcdef0"]
-            self._local_name = 'RaspberryPiAudio'
-            self._appearance = 0x0340
-            self._include_tx_power = True
+            metadata_json = json.dumps(metadata).encode()
             
-        @dbus_property(access=PropertyAccess.READ)
-        def Type(self) -> 's':
-            return self._type
-            
-        @dbus_property(access=PropertyAccess.READ)
-        def ServiceUUIDs(self) -> 'as':
-            return self._service_uuids
-            
-        @dbus_property(access=PropertyAccess.READ)
-        def LocalName(self) -> 's':
-            return self._local_name
+            # Send metadata length first (4 bytes)
+            self.client_sock.send(len(metadata_json).to_bytes(4, 'big'))
+            # Send metadata
+            self.client_sock.send(metadata_json)
 
-        @dbus_property(access=PropertyAccess.READ)
-        def Appearance(self) -> 'q':
-            return self._appearance
+            # Send file data
+            with open(filename, 'rb') as f:
+                data = f.read(1024)
+                while data:
+                    self.client_sock.send(data)
+                    data = f.read(1024)
+            
+            logger.info(f"Sent file: {filename}")
+            
+            # Optionally delete the file after sending
+            # os.remove(filename)
+            
+        except Exception as e:
+            logger.error(f"Error sending file {filename}: {str(e)}")
 
-        @dbus_property(access=PropertyAccess.READ)
-        def IncludeTxPower(self) -> 'b':
-            return self._include_tx_power
-    
-    # Update introspection data to include pairing properties
-    adapter_introspection = '''
-        <node>
-            <interface name="org.bluez.Adapter1">
-                <property name="Powered" type="b" access="readwrite"/>
-                <property name="Discoverable" type="b" access="readwrite"/>
-                <property name="DiscoverableTimeout" type="u" access="readwrite"/>
-                <property name="Pairable" type="b" access="readwrite"/>
-                <property name="PairableTimeout" type="u" access="readwrite"/>
-                <property name="Alias" type="s" access="readwrite"/>
-            </interface>
-            <interface name="org.bluez.LEAdvertisingManager1">
-                <method name="RegisterAdvertisement">
-                    <arg name="advertisement" type="o" direction="in"/>
-                    <arg name="options" type="a{sv}" direction="in"/>
-                </method>
-            </interface>
-            <interface name="org.freedesktop.DBus.Properties">
-                <method name="Get">
-                    <arg name="interface" type="s" direction="in"/>
-                    <arg name="property" type="s" direction="in"/>
-                    <arg name="value" type="v" direction="out"/>
-                </method>
-                <method name="Set">
-                    <arg name="interface" type="s" direction="in"/>
-                    <arg name="property" type="s" direction="in"/>
-                    <arg name="value" type="v" direction="in"/>
-                </method>
-            </interface>
-        </node>
-    '''
-    
-    # Get proxy object with introspection data
-    proxy_obj = bus.get_proxy_object('org.bluez', adapter_path, adapter_introspection)
-    properties = proxy_obj.get_interface('org.freedesktop.DBus.Properties')
-    le_advertising = proxy_obj.get_interface('org.bluez.LEAdvertisingManager1')
-    
-    # Enable adapter, pairing, and advertising
-    try:
-        # Power on and configure adapter
-        await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', True))
-        await properties.call_set('org.bluez.Adapter1', 'Discoverable', Variant('b', True))
-        await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))
-        
-        # Disable pairing since we don't need it for this application
-        await properties.call_set('org.bluez.Adapter1', 'Pairable', Variant('b', False))
-        
-        # Set low security mode
-        await properties.call_set('org.bluez.Adapter1', 'Alias', Variant('s', 'RaspberryPiAudio'))
-        
-        logger.info("Bluetooth adapter configured")
-        
-        # Create and register advertisement
-        advertisement = Advertisement()
-        bus.export('/org/bluez/example/advertisement0', advertisement)
-        await le_advertising.call_register_advertisement('/org/bluez/example/advertisement0', {})
-        
-        logger.info("Bluetooth LE advertising enabled with custom service UUID")
-    except Exception as e:
-        logger.error(f"Failed to configure advertising: {e}")
-        raise
-    
-    # Create recorder instance
+def start_server():
+    server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+    server_sock.bind(("", bluetooth.PORT_ANY))
+    server_sock.listen(1)
+
+    port = server_sock.getsockname()[1]
+    uuid = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
+
+    bluetooth.advertise_service(
+        server_sock, "AudioRecorderService",
+        service_id=uuid,
+        service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
+        profiles=[bluetooth.SERIAL_PORT_PROFILE]
+    )
+
+    logger.info(f"Waiting for connection on RFCOMM channel {port}")
     recorder = AudioRecorder()
 
-    # Register the application
-    app = GATTApplication()
-    bus.export('/org/bluez/example/application', app)
+    while True:
+        try:
+            client_sock, client_info = server_sock.accept()
+            logger.info(f"Accepted connection from {client_info}")
+            
+            recorder.client_sock = client_sock
+            recorder.start_recording()
 
-    # Register the service
-    service = GATTService()
-    bus.export('/org/bluez/example/service0', service)
+            # Keep connection alive and monitor for disconnection
+            while True:
+                try:
+                    # Simple connection check
+                    client_sock.send(b'\x00')
+                    threading.Event().wait(1)
+                except:
+                    logger.info("Client disconnected")
+                    recorder.stop_recording()
+                    client_sock.close()
+                    break
 
-    # Register the characteristic
-    characteristic = GATTCharacteristic(recorder)
-    bus.export('/org/bluez/example/characteristic0', characteristic)
-    logger.info(f"Registered characteristic with UUID: {characteristic._uuid}")
-    logger.info(f"Characteristic flags: {characteristic._flags}")
-    logger.info(f"Characteristic service: {characteristic._service}")
+        except Exception as e:
+            logger.error(f"Error in main loop: {str(e)}")
+            if 'client_sock' in locals():
+                client_sock.close()
+            recorder.stop_recording()
 
-    logger.info("BLE services registered and advertising")
-    return bus, recorder
+    server_sock.close()
 
-async def main():
-    logger.info("Starting BLE GATT server...")
-    
-    # Setup D-Bus and BlueZ
-    bus, recorder = await setup_bluez()
-    
-    logger.info("=" * 50)
-    logger.info("BLE GATT server running...")
-    logger.info("Waiting for connections...")
-    logger.info("Service UUID: 12345678-1234-5678-1234-56789abcdef0")
-    logger.info("Characteristic UUID: abcdef01-1234-5678-1234-56789abcdef0")
-    logger.info("=" * 50)
-    
+if __name__ == "__main__":
     try:
-        while True:
-            logger.debug("Server heartbeat")  # To verify the server is still running
-            await asyncio.sleep(10)  # Heartbeat every 10 seconds
+        start_server()
     except KeyboardInterrupt:
-        recorder.stop_recording()
-        logger.info("Server stopped")
-
-if __name__ == '__main__':
-    asyncio.run(main())
+        logger.info("Server shutdown by user")
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
