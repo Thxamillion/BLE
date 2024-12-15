@@ -40,44 +40,64 @@ class AudioRecorder:
 
     def start_recording(self):
         if not self.is_recording:
+            logger.info("=" * 50)
             logger.info("Starting audio recording")
+            logger.info("Recording settings:")
+            logger.info(f"Chunk size: {CHUNK}")
+            logger.info(f"Channels: {CHANNELS}")
+            logger.info(f"Rate: {RATE}")
+            logger.info(f"Record duration: {RECORD_SECONDS}s")
+            logger.info("=" * 50)
             self.is_recording = True
             self.recording_thread = threading.Thread(target=self._record_continuously)
             self.recording_thread.start()
+        else:
+            logger.warning("Recording already in progress")
 
     def _record_continuously(self):
         while self.is_recording:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = os.path.join(OUTPUT_DIR, f"audio_{timestamp}.wav")
             
-            stream = self.p.open(format=FORMAT,
-                               channels=CHANNELS,
-                               rate=RATE,
-                               input=True,
-                               frames_per_buffer=CHUNK)
+            try:
+                stream = self.p.open(format=FORMAT,
+                                   channels=CHANNELS,
+                                   rate=RATE,
+                                   input=True,
+                                   frames_per_buffer=CHUNK)
 
-            logger.info(f"Recording: {filename}")
-            frames = []
+                logger.info("-" * 30)
+                logger.info(f"Started new recording segment: {filename}")
+                frames = []
 
-            for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-                if not self.is_recording:
-                    break
-                data = stream.read(CHUNK)
-                frames.append(data)
+                for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+                    if not self.is_recording:
+                        logger.info("Recording stopped by request")
+                        break
+                    try:
+                        data = stream.read(CHUNK)
+                        frames.append(data)
+                    except Exception as e:
+                        logger.error(f"Error reading audio data: {e}")
+                        break
 
-            stream.stop_stream()
-            stream.close()
+                stream.stop_stream()
+                stream.close()
 
-            if frames:  # Only save if we actually recorded something
-                wf = wave.open(filename, 'wb')
-                wf.setnchannels(CHANNELS)
-                wf.setsampwidth(self.p.get_sample_size(FORMAT))
-                wf.setframerate(RATE)
-                wf.writeframes(b''.join(frames))
-                wf.close()
+                if frames:  # Only save if we actually recorded something
+                    wf = wave.open(filename, 'wb')
+                    wf.setnchannels(CHANNELS)
+                    wf.setsampwidth(self.p.get_sample_size(FORMAT))
+                    wf.setframerate(RATE)
+                    wf.writeframes(b''.join(frames))
+                    wf.close()
 
-                file_queue.put(filename)
-                logger.info(f"Saved: {filename}")
+                    file_queue.put(filename)
+                    logger.info(f"Successfully saved recording: {filename}")
+                    logger.info(f"File size: {os.path.getsize(filename)} bytes")
+                    logger.info("-" * 30)
+            except Exception as e:
+                logger.error(f"Error during recording: {e}")
 
     def stop_recording(self):
         if self.is_recording:
@@ -159,24 +179,34 @@ class GATTCharacteristic(ServiceInterface):
                 with open(filename, 'rb') as f:
                     data = f.read(512)  # Read in chunks of 512 bytes
                     self._value = list(data)
-                    logger.info(f"Sending chunk of size {len(data)} bytes")
+                    logger.info("-" * 30)
+                    logger.info(f"Sending audio chunk")
+                    logger.info(f"File: {filename}")
+                    logger.info(f"Chunk size: {len(data)} bytes")
+                    logger.info("-" * 30)
                     
                     # Delete the file after successful read
                     try:
                         os.remove(filename)
-                        logger.info(f"Deleted file after transfer: {filename}")
+                        logger.info(f"Successfully deleted file: {filename}")
                     except OSError as e:
                         logger.error(f"Error deleting file {filename}: {e}")
                     
                     return self._value
             except FileNotFoundError:
                 logger.error(f"File not found: {filename}")
+        else:
+            logger.debug("No audio data available to send")
         return []
 
     @method()
     def StartNotify(self):
         sender = self.get_sender()
-        logger.info(f"Client connected: {sender}")
+        logger.info("=" * 50)
+        logger.info(f"New client connected!")
+        logger.info(f"Client ID: {sender}")
+        logger.info("Starting audio recording...")
+        logger.info("=" * 50)
         self._clients.add(sender)
         if len(self._clients) == 1:  # First client connected
             self.recorder.start_recording()
@@ -184,7 +214,10 @@ class GATTCharacteristic(ServiceInterface):
     @method()
     def StopNotify(self):
         sender = self.get_sender()
-        logger.info(f"Client disconnected: {sender}")
+        logger.info("=" * 50)
+        logger.info(f"Client disconnected!")
+        logger.info(f"Client ID: {sender}")
+        logger.info("=" * 50)
         self._clients.discard(sender)
         if not self._clients:  # No more clients connected
             self.recorder.stop_recording()
