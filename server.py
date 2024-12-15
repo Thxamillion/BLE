@@ -194,7 +194,34 @@ async def setup_bluez():
     
     # Configure adapter for advertising
     adapter_path = '/org/bluez/hci0'
-    properties = bus.get_proxy_object('org.bluez', adapter_path).get_interface('org.freedesktop.DBus.Properties')
+    
+    # Define introspection data for the adapter
+    adapter_introspection = '''
+        <node>
+            <interface name="org.bluez.Adapter1">
+                <property name="Powered" type="b" access="readwrite"/>
+                <property name="Discoverable" type="b" access="readwrite"/>
+                <property name="DiscoverableTimeout" type="u" access="readwrite"/>
+                <property name="Alias" type="s" access="readwrite"/>
+            </interface>
+            <interface name="org.freedesktop.DBus.Properties">
+                <method name="Get">
+                    <arg name="interface" type="s" direction="in"/>
+                    <arg name="property" type="s" direction="in"/>
+                    <arg name="value" type="v" direction="out"/>
+                </method>
+                <method name="Set">
+                    <arg name="interface" type="s" direction="in"/>
+                    <arg name="property" type="s" direction="in"/>
+                    <arg name="value" type="v" direction="in"/>
+                </method>
+            </interface>
+        </node>
+    '''
+    
+    # Get proxy object with introspection data
+    proxy_obj = bus.get_proxy_object('org.bluez', adapter_path, adapter_introspection)
+    properties = proxy_obj.get_interface('org.freedesktop.DBus.Properties')
     
     # Enable adapter and advertising
     try:
