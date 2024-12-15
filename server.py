@@ -16,14 +16,14 @@ class GATTApplication(ServiceInterface):
         return {
             '/org/bluez/example/service0': {
                 'org.bluez.GattService1': {
-                    'UUID': Variant('s', "12345678-1234-5678-1234-56789abcdef0"),
+                    'UUID': Variant('s', "0000180a-0000-1000-8000-00805f9b34fb"),
                     'Primary': Variant('b', True),
                     'Characteristics': Variant('ao', ['/org/bluez/example/characteristic0'])
                 }
             },
             '/org/bluez/example/characteristic0': {
                 'org.bluez.GattCharacteristic1': {
-                    'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
+                    'UUID': Variant('s', "00002a50-0000-1000-8000-00805f9b34fb"),
                     'Service': Variant('o', '/org/bluez/example/service0'),
                     'Flags': Variant('as', ['read', 'write', 'notify'])
                 }
@@ -51,7 +51,7 @@ class GATTService(ServiceInterface):
 class GATTCharacteristic(ServiceInterface):
     def __init__(self, recorder: AudioRecorder):
         super().__init__('org.bluez.GattCharacteristic1')
-        self._uuid = "abcdef01-1234-5678-1234-56789abcdef0"
+        self._uuid = "00002a50-0000-1000-8000-00805f9b34fb"
         self._flags = ['read', 'write', 'notify']
         self._service = '/org/bluez/example/service0'
         self._value = []
