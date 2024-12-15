@@ -195,6 +195,26 @@ async def setup_bluez():
     # Configure adapter for advertising
     adapter_path = '/org/bluez/hci0'
     
+    # Define Advertisement class
+    class Advertisement(ServiceInterface):
+        def __init__(self):
+            super().__init__('org.bluez.LEAdvertisement1')
+            self._type = 'peripheral'
+            self._service_uuids = ["12345678-1234-5678-1234-56789abcdef0"]
+            self._local_name = 'RaspberryPiAudio'
+            
+        @dbus_property(access=PropertyAccess.READ)
+        def Type(self) -> 's':
+            return self._type
+            
+        @dbus_property(access=PropertyAccess.READ)
+        def ServiceUUIDs(self) -> 'as':
+            return self._service_uuids
+            
+        @dbus_property(access=PropertyAccess.READ)
+        def LocalName(self) -> 's':
+            return self._local_name
+    
     # Update introspection data to include pairing properties
     adapter_introspection = '''
         <node>
@@ -244,7 +264,7 @@ async def setup_bluez():
         logger.info("Bluetooth adapter configured with pairing enabled")
         
         # Create and register advertisement
-        advertisement = advertisement()
+        advertisement = Advertisement()
         bus.export('/org/bluez/example/advertisement0', advertisement)
         await le_advertising.call_register_advertisement('/org/bluez/example/advertisement0', {})
         
