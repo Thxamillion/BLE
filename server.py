@@ -33,7 +33,7 @@ class GATTApplication(ServiceInterface):
 class GATTService(ServiceInterface):
     def __init__(self):
         super().__init__('org.bluez.GattService1')
-        self._uuid = "12345678-1234-5678-1234-56789abcdef0"
+        self._uuid = "0000180a-0000-1000-8000-00805f9b34fb"
         self._primary = True
 
     @dbus_property(access=PropertyAccess.READ)
@@ -52,7 +52,7 @@ class GATTCharacteristic(ServiceInterface):
     def __init__(self, recorder: AudioRecorder):
         super().__init__('org.bluez.GattCharacteristic1')
         self._uuid = "00002a50-0000-1000-8000-00805f9b34fb"
-        self._flags = ['read', 'write', 'notify']
+        self._flags = ['read', 'notify']
         self._service = '/org/bluez/example/service0'
         self._value = []
         self.recorder = recorder
@@ -144,8 +144,10 @@ async def setup_bluez():
         def __init__(self):
             super().__init__('org.bluez.LEAdvertisement1')
             self._type = 'peripheral'
-            self._service_uuids = ["12345678-1234-5678-1234-56789abcdef0"]
+            self._service_uuids = ["0000180a-0000-1000-8000-00805f9b34fb"]
             self._local_name = 'RaspberryPiAudio'
+            self._appearance = 0x0340
+            self._include_tx_power = True
             
         @dbus_property(access=PropertyAccess.READ)
         def Type(self) -> 's':
@@ -158,6 +160,14 @@ async def setup_bluez():
         @dbus_property(access=PropertyAccess.READ)
         def LocalName(self) -> 's':
             return self._local_name
+
+        @dbus_property(access=PropertyAccess.READ)
+        def Appearance(self) -> 'q':
+            return self._appearance
+
+        @dbus_property(access=PropertyAccess.READ)
+        def IncludeTxPower(self) -> 'b':
+            return self._include_tx_power
     
     # Update introspection data to include pairing properties
     adapter_introspection = '''
@@ -202,10 +212,14 @@ async def setup_bluez():
         await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'Discoverable', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))
-        await properties.call_set('org.bluez.Adapter1', 'Pairable', Variant('b', True))
-        await properties.call_set('org.bluez.Adapter1', 'PairableTimeout', Variant('u', 0))
         
-        logger.info("Bluetooth adapter configured with pairing enabled")
+        # Disable pairing since we don't need it for this application
+        await properties.call_set('org.bluez.Adapter1', 'Pairable', Variant('b', False))
+        
+        # Set low security mode
+        await properties.call_set('org.bluez.Adapter1', 'Alias', Variant('s', 'RaspberryPiAudio'))
+        
+        logger.info("Bluetooth adapter configured")
         
         # Create and register advertisement
         advertisement = Advertisement()
@@ -244,8 +258,8 @@ async def main():
     logger.info("=" * 50)
     logger.info("BLE GATT server running...")
     logger.info("Waiting for connections...")
-    logger.info("Service UUID: 12345678-1234-5678-1234-56789abcdef0")
-    logger.info("Characteristic UUID: abcdef01-1234-5678-1234-56789abcdef0")
+    logger.info("Service UUID: 0000180a-0000-1000-8000-00805f9b34fb")
+    logger.info("Characteristic UUID: 00002a50-0000-1000-8000-00805f9b34fb")
     logger.info("=" * 50)
     
     try:
