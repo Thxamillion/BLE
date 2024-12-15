@@ -10,10 +10,10 @@ from dbus_next.service import ServiceInterface, method, dbus_property, signal, V
 from dbus_next.constants import BusType, PropertyAccess
 
 # Audio settings
-CHUNK = 4096
+CHUNK = 8192
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-RATE = 16000
+RATE = 44100
 RECORD_SECONDS = 30
 OUTPUT_DIR = "recordings"
 
