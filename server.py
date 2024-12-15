@@ -192,6 +192,21 @@ class GATTCharacteristic(ServiceInterface):
 async def setup_bluez():
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     
+    # Configure adapter for advertising
+    adapter_path = '/org/bluez/hci0'
+    properties = bus.get_proxy_object('org.bluez', adapter_path).get_interface('org.freedesktop.DBus.Properties')
+    
+    # Enable adapter and advertising
+    try:
+        await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', True))
+        await properties.call_set('org.bluez.Adapter1', 'Discoverable', Variant('b', True))
+        await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))  # No timeout
+        await properties.call_set('org.bluez.Adapter1', 'Alias', Variant('s', 'RaspberryPiAudio'))
+        logger.info("Bluetooth advertising enabled")
+    except Exception as e:
+        logger.error(f"Failed to configure advertising: {e}")
+        raise
+    
     # Create recorder instance
     recorder = AudioRecorder()
 
@@ -207,7 +222,7 @@ async def setup_bluez():
     characteristic = GATTCharacteristic(recorder)
     bus.export('/org/bluez/example/characteristic0', characteristic)
 
-    logger.info("BLE services registered")
+    logger.info("BLE services registered and advertising")
     return bus, recorder
 
 async def main():
