@@ -1,16 +1,30 @@
 import asyncio
+from aioble import Service, Characteristic, CharacteristicFlags, Advertisement
+import pyaudio
+import wave
 import os
 import datetime
 import threading
 import queue
-import pyaudio
-import wave
-from dbus_next.aio import MessageBus
-from dbus_next.service import ServiceInterface, method, dbus_property, signal, Variant
-from dbus_next.constants import BusType, PropertyAccess
+import logging
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('audio_server.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# BLE Service and Characteristic UUIDs
+SERVICE_UUID = "12345678-1234-5678-1234-56789abcdef0"
+CHARACTERISTIC_UUID = "abcdef01-1234-5678-1234-56789abcdef0"
 
 # Audio settings
-CHUNK = 8192
+CHUNK = 1024
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 44100
@@ -24,136 +38,146 @@ class AudioRecorder:
     def __init__(self):
         self.is_recording = False
         self.p = pyaudio.PyAudio()
+        self.recording_thread = None
 
     def start_recording(self):
-        self.is_recording = True
-        threading.Thread(target=self._record_continuously).start()
+        if not self.is_recording:
+            self.is_recording = True
+            self.recording_thread = threading.Thread(target=self._record_continuously)
+            self.recording_thread.start()
+            logger.info("Started recording")
 
     def _record_continuously(self):
         while self.is_recording:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = os.path.join(OUTPUT_DIR, f"audio_{timestamp}.wav")
             
-            stream = self.p.open(format=FORMAT,
-                               channels=CHANNELS,
-                               rate=RATE,
-                               input=True,
-                               frames_per_buffer=CHUNK)
+            try:
+                stream = self.p.open(format=FORMAT,
+                                   channels=CHANNELS,
+                                   rate=RATE,
+                                   input=True,
+                                   frames_per_buffer=CHUNK)
 
-            print(f"Recording: {filename}")
-            frames = []
+                logger.info(f"Recording: {filename}")
+                frames = []
 
-            for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-                if not self.is_recording:
-                    break
-                data = stream.read(CHUNK)
-                frames.append(data)
+                for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+                    if not self.is_recording:
+                        break
+                    data = stream.read(CHUNK)
+                    frames.append(data)
 
-            stream.stop_stream()
-            stream.close()
+                stream.stop_stream()
+                stream.close()
 
-            wf = wave.open(filename, 'wb')
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(self.p.get_sample_size(FORMAT))
-            wf.setframerate(RATE)
-            wf.writeframes(b''.join(frames))
-            wf.close()
+                wf = wave.open(filename, 'wb')
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(self.p.get_sample_size(FORMAT))
+                wf.setframerate(RATE)
+                wf.writeframes(b''.join(frames))
+                wf.close()
 
-            file_queue.put(filename)
-            print(f"Saved: {filename}")
+                file_queue.put(filename)
+                logger.info(f"Saved: {filename}")
+
+            except Exception as e:
+                logger.error(f"Error during recording: {str(e)}")
 
     def stop_recording(self):
-        self.is_recording = False
-        self.p.terminate()
+        if self.is_recording:
+            self.is_recording = False
+            if self.recording_thread:
+                self.recording_thread.join()
+            self.p.terminate()
+            logger.info("Stopped recording")
 
-class GATTService(ServiceInterface):
-    def __init__(self):
-        super().__init__('org.bluez.GattService1')
-        self._uuid = "12345678-1234-5678-1234-56789abcdef0"
-        self._primary = True
+async def handle_read(characteristic: Characteristic, **kwargs):
+    if not file_queue.empty():
+        filename = file_queue.get()
+        try:
+            with open(filename, 'rb') as f:
+                data = f.read()
+                logger.info(f"Read file for transfer: {filename}")
+                return data
+        except Exception as e:
+            logger.error(f"Error reading file {filename}: {str(e)}")
+    return b''
 
-    @dbus_property(access=PropertyAccess.READ)
-    def UUID(self) -> 's':
-        return self._uuid
-
-    @dbus_property(access=PropertyAccess.READ)
-    def Primary(self) -> 'b':
-        return self._primary
-
-    @dbus_property(access=PropertyAccess.READ)
-    def Characteristics(self) -> 'ao':
-        return ['/org/bluez/example/characteristic0']
-
-class GATTCharacteristic(ServiceInterface):
-    def __init__(self):
-        super().__init__('org.bluez.GattCharacteristic1')
-        self._uuid = "abcdef01-1234-5678-1234-56789abcdef0"
-        self._flags = ['read', 'notify']
-        self._service = '/org/bluez/example/service0'
-        self._value = []
-
-    @dbus_property(access=PropertyAccess.READ)
-    def UUID(self) -> 's':
-        return self._uuid
-
-    @dbus_property(access=PropertyAccess.READ)
-    def Service(self) -> 'o':
-        return self._service
-
-    @dbus_property(access=PropertyAccess.READ)
-    def Flags(self) -> 'as':
-        return self._flags
-
-    @method()
-    def ReadValue(self, options: 'a{sv}') -> 'ay':
-        if not file_queue.empty():
-            filename = file_queue.get()
-            try:
-                with open(filename, 'rb') as f:
-                    data = f.read(512)  # Read in chunks of 512 bytes
-                    self._value = list(data)
-                    return self._value
-            except FileNotFoundError:
-                print(f"File not found: {filename}")
-        return []
-
-    @method()
-    def StartNotify(self):
-        print("Notifications started")
-
-    @method()
-    def StopNotify(self):
-        print("Notifications stopped")
-
-async def setup_bluez():
-    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
-
-    # Register the service
-    service = GATTService()
-    bus.export('/org/bluez/example/service0', service)
-
-    # Register the characteristic
-    characteristic = GATTCharacteristic()
-    bus.export('/org/bluez/example/characteristic0', characteristic)
-
-    return bus
-
-async def main():
-    # Start the audio recorder
-    recorder = AudioRecorder()
+async def handle_connection(connection, recorder):
+    logger.info(f"Device connected: {connection.device}")
     recorder.start_recording()
-
-    # Setup D-Bus and BlueZ
-    bus = await setup_bluez()
-    
-    print("BLE GATT server running...")
     
     try:
-        while True:
-            await asyncio.sleep(1)
-    except KeyboardInterrupt:
+        await connection.disconnected()
+    finally:
+        logger.info("Device disconnected")
         recorder.stop_recording()
-        print("Server stopped")
 
-if __name__ == '__main__':
-    asyncio.run(main())
+async def main():
+    # Create service
+    service = Service(SERVICE_UUID)
+    
+    # Create characteristic
+    char = Characteristic(
+        CHARACTERISTIC_UUID,
+        CharacteristicFlags.READ | CharacteristicFlags.NOTIFY,
+        read_handler=handle_read
+    )
+    service.add_characteristic(char)
+
+    # Create advertisement
+    advertisement = Advertisement()
+    advertisement.complete_name = "AudioRecorder"
+    advertisement.service_uuids = [SERVICE_UUID]
+
+    # Create recorder instance
+    recorder = AudioRecorder()
+    
+    logger.info("Starting BLE server...")
+    
+    while True:
+        try:
+            async with await aioble.advertise(advertisement, [service]) as connection:
+                logger.info("BLE server running and advertising...")
+                
+                # Handle the connection
+                await handle_connection(connection, recorder)
+                
+                # Handle file transfers
+                while not file_queue.empty():
+                    filename = file_queue.get()
+                    try:
+                        with open(filename, 'rb') as f:
+                            data = f.read()
+                            # Send in chunks
+                            chunk_size = 512
+                            total_chunks = len(data) // chunk_size + (1 if len(data) % chunk_size else 0)
+                            
+                            logger.info(f"Starting transfer of {filename} ({len(data)} bytes in {total_chunks} chunks)")
+                            
+                            for i in range(0, len(data), chunk_size):
+                                chunk = data[i:i + chunk_size]
+                                await char.notify(chunk)
+                                await asyncio.sleep(0.01)
+                            
+                            logger.info(f"Completed transfer of {filename}")
+                            
+                            # Optionally delete the file after successful transfer
+                            os.remove(filename)
+                            logger.info(f"Deleted file: {filename}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error transferring file {filename}: {str(e)}")
+                
+        except Exception as e:
+            logger.error(f"Connection error: {str(e)}")
+            await asyncio.sleep(1)  # Wait before retrying
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Server shutdown by user")
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
