@@ -38,7 +38,7 @@ class GATTApplication(ServiceInterface):
                 'org.bluez.GattCharacteristic1': {
                     'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
                     'Service': Variant('o', '/org/bluez/example/service0'),
-                    'Flags': Variant('as', ['read', 'notify', 'indicate']),
+                    'Flags': Variant('as', ['read', 'notify']),
                     'Value': Variant('ay', b'')
                 }
             }
@@ -71,7 +71,7 @@ class GATTCharacteristic(ServiceInterface):
         self._uuid = "abcdef01-1234-5678-1234-56789abcdef0"
         self._flags = ['read', 'notify']
         self._service = '/org/bluez/example/service0'
-        self._value = []
+        self._value = b''
         self.recorder = recorder
         self._clients = set()
         self.notifying = False
@@ -85,7 +85,7 @@ class GATTCharacteristic(ServiceInterface):
             return
         self.PropertiesChanged(
             'org.bluez.GattCharacteristic1',
-            {'Value': Variant('ay', value)},
+            {'Value': Variant('ay', bytes(value))},
             []
         )
 
@@ -114,10 +114,10 @@ class GATTCharacteristic(ServiceInterface):
                     chunk = f.read(512)
                     if chunk:
                         logger.info(f"Sending chunk of size {len(chunk)} bytes")
-                        return list(chunk)
+                        return bytes(chunk)
                     os.remove(next_file)
                     logger.info(f"File transfer complete, deleted: {next_file}")
-            return []
+            return b''
         except Exception as e:
             logger.error(f"Error in ReadValue: {e}")
             raise NotSupportedException()
