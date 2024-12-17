@@ -38,7 +38,7 @@ class GATTApplication(ServiceInterface):
                 'org.bluez.GattCharacteristic1': {
                     'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
                     'Service': Variant('o', '/org/bluez/example/service0'),
-                    'Flags': Variant('as', ['read', 'notify']),
+                    'Flags': Variant('as', ['read', 'notify', 'encrypt-read', 'encrypt-write']),
                     'Value': Variant('ay', b'')
                 }
             }
@@ -69,7 +69,7 @@ class GATTCharacteristic(ServiceInterface):
     def __init__(self, recorder: AudioRecorder):
         super().__init__('org.bluez.GattCharacteristic1')
         self._uuid = "abcdef01-1234-5678-1234-56789abcdef0"
-        self._flags = ['read', 'notify']
+        self._flags = ['read', 'notify', 'encrypt-read', 'encrypt-write']
         self._service = '/org/bluez/example/service0'
         self._value = b''
         self.recorder = recorder
@@ -176,37 +176,7 @@ async def setup_bluez():
     # Configure adapter for advertising
     adapter_path = '/org/bluez/hci0'
     
-    # Define Advertisement class
-    class Advertisement(ServiceInterface):
-        def __init__(self):
-            super().__init__('org.bluez.LEAdvertisement1')
-            self._type = 'peripheral'
-            self._service_uuids = ["12345678-1234-5678-1234-56789abcdef0"]
-            self._local_name = 'RaspberryPiAudio'
-            self._appearance = 0x0340
-            self._include_tx_power = True
-            
-        @dbus_property(access=PropertyAccess.READ)
-        def Type(self) -> 's':
-            return self._type
-            
-        @dbus_property(access=PropertyAccess.READ)
-        def ServiceUUIDs(self) -> 'as':
-            return self._service_uuids
-            
-        @dbus_property(access=PropertyAccess.READ)
-        def LocalName(self) -> 's':
-            return self._local_name
-
-        @dbus_property(access=PropertyAccess.READ)
-        def Appearance(self) -> 'q':
-            return self._appearance
-
-        @dbus_property(access=PropertyAccess.READ)
-        def IncludeTxPower(self) -> 'b':
-            return self._include_tx_power
-    
-    # Update introspection data to include pairing properties
+    # Update introspection data to include security properties
     adapter_introspection = '''
         <node>
             <interface name="org.bluez.Adapter1">
@@ -215,6 +185,8 @@ async def setup_bluez():
                 <property name="DiscoverableTimeout" type="u" access="readwrite"/>
                 <property name="Pairable" type="b" access="readwrite"/>
                 <property name="PairableTimeout" type="u" access="readwrite"/>
+                <property name="Bondable" type="b" access="readwrite"/>
+                <property name="SecureConnections" type="b" access="readwrite"/>
                 <property name="Alias" type="s" access="readwrite"/>
             </interface>
             <interface name="org.bluez.LEAdvertisingManager1">
@@ -243,12 +215,17 @@ async def setup_bluez():
     properties = proxy_obj.get_interface('org.freedesktop.DBus.Properties')
     le_advertising = proxy_obj.get_interface('org.bluez.LEAdvertisingManager1')
     
-    # Enable adapter, pairing, and advertising
     try:
-        # Power on and configure adapter
+        # Configure adapter for secure connections
         await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'Discoverable', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))
+        await properties.call_set('org.bluez.Adapter1', 'Pairable', Variant('b', True))
+        await properties.call_set('org.bluez.Adapter1', 'PairableTimeout', Variant('u', 0))
+        await properties.call_set('org.bluez.Adapter1', 'Bondable', Variant('b', True))
+        await properties.call_set('org.bluez.Adapter1', 'SecureConnections', Variant('b', True))
+        
+        logger.info("Bluetooth adapter configured for secure connections")
         
         # Disable pairing since we don't need it for this application
         await properties.call_set('org.bluez.Adapter1', 'Pairable', Variant('b', False))
