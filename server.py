@@ -176,6 +176,36 @@ async def setup_bluez():
     # Configure adapter for advertising
     adapter_path = '/org/bluez/hci0'
     
+    # Define Advertisement class
+    class Advertisement(ServiceInterface):
+        def __init__(self):
+            super().__init__('org.bluez.LEAdvertisement1')
+            self._type = 'peripheral'
+            self._service_uuids = ["12345678-1234-5678-1234-56789abcdef0"]
+            self._local_name = 'RaspberryPiAudio'
+            self._appearance = 0x0340
+            self._include_tx_power = True
+            
+        @dbus_property(access=PropertyAccess.READ)
+        def Type(self) -> 's':
+            return self._type
+            
+        @dbus_property(access=PropertyAccess.READ)
+        def ServiceUUIDs(self) -> 'as':
+            return self._service_uuids
+            
+        @dbus_property(access=PropertyAccess.READ)
+        def LocalName(self) -> 's':
+            return self._local_name
+
+        @dbus_property(access=PropertyAccess.READ)
+        def Appearance(self) -> 'q':
+            return self._appearance
+
+        @dbus_property(access=PropertyAccess.READ)
+        def IncludeTxPower(self) -> 'b':
+            return self._include_tx_power
+    
     # Update introspection data with available properties
     adapter_introspection = '''
         <node>
