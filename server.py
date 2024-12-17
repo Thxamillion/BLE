@@ -105,8 +105,8 @@ class GATTCharacteristic(ServiceInterface):
     def Value(self) -> 'ay':
         return self._value
 
-    @method()
-    def ReadValue(self, options: 'dict') -> list:
+    @method(name='ReadValue')
+    def read_value(self, options: 'a{sv}') -> 'ay':
         try:
             next_file = self.recorder.get_next_file()
             if next_file:
@@ -122,8 +122,8 @@ class GATTCharacteristic(ServiceInterface):
             logger.error(f"Error in ReadValue: {e}")
             raise NotSupportedException()
 
-    @method()
-    def StartNotify(self) -> None:
+    @method(name='StartNotify')
+    def start_notify(self) -> None:
         sender = self.get_sender()
         logger.info("=" * 50)
         logger.info(f"StartNotify called!")
@@ -143,8 +143,8 @@ class GATTCharacteristic(ServiceInterface):
             logger.info(f"Additional client connected. Total clients: {len(self._clients)}")
         logger.info("=" * 50)
 
-    @method()
-    def StopNotify(self) -> None:
+    @method(name='StopNotify')
+    def stop_notify(self) -> None:
         sender = self.get_sender()
         logger.info("=" * 50)
         logger.info(f"Client disconnected!")
@@ -154,12 +154,12 @@ class GATTCharacteristic(ServiceInterface):
         if not self._clients:  # No more clients connected
             self.recorder.stop_recording()
 
-    @method()
-    def WriteValue(self, value: list, options: 'dict') -> None:
+    @method(name='WriteValue')
+    def write_value(self, value: 'ay', options: 'a{sv}') -> None:
         logger.info(f"WriteValue called with: {bytes(value).decode()}")
 
-    @method()
-    def GetAll(self, interface: str) -> dict:
+    @method(name='GetAll')
+    def get_all(self, interface: 's') -> 'a{sv}':
         if interface != 'org.bluez.GattCharacteristic1':
             raise InvalidArgsException()
 
