@@ -106,7 +106,7 @@ class GATTCharacteristic(ServiceInterface):
         return self._value
 
     @method()
-    def ReadValue(self, options: 'a{sv}') -> 'ay':
+    def ReadValue(self, options: 'a{sv}', signature='a{sv}', result_signature='ay'):
         try:
             next_file = self.recorder.get_next_file()
             if next_file:
@@ -123,7 +123,7 @@ class GATTCharacteristic(ServiceInterface):
             raise NotSupportedException()
 
     @method()
-    def StartNotify(self):
+    def StartNotify(self, signature='', result_signature=''):
         sender = self.get_sender()
         logger.info("=" * 50)
         logger.info(f"StartNotify called!")
@@ -144,7 +144,7 @@ class GATTCharacteristic(ServiceInterface):
         logger.info("=" * 50)
 
     @method()
-    def StopNotify(self):
+    def StopNotify(self, signature='', result_signature=''):
         sender = self.get_sender()
         logger.info("=" * 50)
         logger.info(f"Client disconnected!")
@@ -155,12 +155,11 @@ class GATTCharacteristic(ServiceInterface):
             self.recorder.stop_recording()
 
     @method()
-    def WriteValue(self, value: 'ay', options: 'a{sv}') -> None:
+    def WriteValue(self, value: 'ay', options: 'a{sv}', signature='aya{sv}', result_signature=''):
         logger.info(f"WriteValue called with: {bytes(value).decode()}")
-        return None
 
     @method()
-    def GetAll(self, interface: str) -> 'a{sv}':
+    def GetAll(self, interface: 's', signature='s', result_signature='a{sv}'):
         if interface != 'org.bluez.GattCharacteristic1':
             raise InvalidArgsException()
 
