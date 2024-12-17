@@ -38,7 +38,7 @@ class GATTApplication(ServiceInterface):
                 'org.bluez.GattCharacteristic1': {
                     'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
                     'Service': Variant('o', '/org/bluez/example/service0'),
-                    'Flags': Variant('as', ['read', 'notify', 'encrypt-read', 'encrypt-write']),
+                    'Flags': Variant('as', ['read', 'notify', 'encrypt-read', 'encrypt-write', 'authenticated']),
                     'Value': Variant('ay', b'')
                 }
             }
