@@ -76,10 +76,12 @@ class AudioRecorder:
             filename = os.path.join(OUTPUT_DIR, f"audio_{timestamp}.wav")
             
             try:
+                # Specify the USB audio device explicitly
                 stream = self.p.open(format=FORMAT,
                                    channels=CHANNELS,
                                    rate=RATE,
                                    input=True,
+                                   input_device_index=0,  # Use first USB device
                                    frames_per_buffer=CHUNK)
 
                 logger.info(f"Started new recording segment: {filename}")
@@ -90,7 +92,7 @@ class AudioRecorder:
                         logger.info("Recording stopped by request")
                         break
                     try:
-                        data = stream.read(CHUNK)
+                        data = stream.read(CHUNK, exception_on_overflow=False)
                         frames.append(data)
                     except Exception as e:
                         logger.error(f"Error reading audio data: {e}")

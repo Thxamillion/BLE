@@ -275,8 +275,8 @@ async def setup_bluez():
     app = GATTApplication()
     bus.export('/org/bluez/example/application', app)
 
-    # Register the service
-    service = GATTService()
+    # Register the service with bus and index
+    service = GATTService(bus, 0)  # Pass bus and index 0
     bus.export('/org/bluez/example/service0', service)
 
     # Register the characteristic
