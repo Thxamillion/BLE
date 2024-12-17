@@ -176,7 +176,7 @@ async def setup_bluez():
     # Configure adapter for advertising
     adapter_path = '/org/bluez/hci0'
     
-    # Update introspection data to include security properties
+    # Update introspection data with available properties
     adapter_introspection = '''
         <node>
             <interface name="org.bluez.Adapter1">
@@ -185,8 +185,6 @@ async def setup_bluez():
                 <property name="DiscoverableTimeout" type="u" access="readwrite"/>
                 <property name="Pairable" type="b" access="readwrite"/>
                 <property name="PairableTimeout" type="u" access="readwrite"/>
-                <property name="Bondable" type="b" access="readwrite"/>
-                <property name="SecureConnections" type="b" access="readwrite"/>
                 <property name="Alias" type="s" access="readwrite"/>
             </interface>
             <interface name="org.bluez.LEAdvertisingManager1">
@@ -222,18 +220,9 @@ async def setup_bluez():
         await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))
         await properties.call_set('org.bluez.Adapter1', 'Pairable', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'PairableTimeout', Variant('u', 0))
-        await properties.call_set('org.bluez.Adapter1', 'Bondable', Variant('b', True))
-        await properties.call_set('org.bluez.Adapter1', 'SecureConnections', Variant('b', True))
-        
-        logger.info("Bluetooth adapter configured for secure connections")
-        
-        # Disable pairing since we don't need it for this application
-        await properties.call_set('org.bluez.Adapter1', 'Pairable', Variant('b', False))
-        
-        # Set low security mode
         await properties.call_set('org.bluez.Adapter1', 'Alias', Variant('s', 'RaspberryPiAudio'))
         
-        logger.info("Bluetooth adapter configured")
+        logger.info("Bluetooth adapter configured for secure connections")
         
         # Create and register advertisement
         advertisement = Advertisement()
