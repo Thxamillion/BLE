@@ -39,7 +39,7 @@ class GATTApplication(ServiceInterface):
                     'UUID': Variant('s', "abcdef01-1234-5678-1234-56789abcdef0"),
                     'Service': Variant('o', '/org/bluez/example/service0'),
                     'Flags': Variant('as', ['read', 'notify', 'indicate']),
-                    'Value': Variant('ay', [])
+                    'Value': Variant('ay', b'')
                 }
             }
         }
