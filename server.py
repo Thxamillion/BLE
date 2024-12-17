@@ -5,16 +5,19 @@ from dbus_next.aio import MessageBus
 from dbus_next.service import ServiceInterface, method, dbus_property, signal, Variant
 from dbus_next.constants import BusType, PropertyAccess
 from record import AudioRecorder, logger
-import dbus
+from dbus_next import DBusError
 
-class InvalidArgsException(dbus.exceptions.DBusException):
-    _dbus_error_name = 'org.freedesktop.DBus.Error.InvalidArgs'
+class InvalidArgsException(DBusError):
+    def __init__(self):
+        super().__init__('org.freedesktop.DBus.Error.InvalidArgs', 'Invalid arguments')
 
-class NotSupportedException(dbus.exceptions.DBusException):
-    _dbus_error_name = 'org.bluez.Error.NotSupported'
+class NotSupportedException(DBusError):
+    def __init__(self):
+        super().__init__('org.bluez.Error.NotSupported', 'Operation not supported')
 
-class NotPermittedException(dbus.exceptions.DBusException):
-    _dbus_error_name = 'org.bluez.Error.NotPermitted'
+class NotPermittedException(DBusError):
+    def __init__(self):
+        super().__init__('org.bluez.Error.NotPermitted', 'Operation not permitted')
 
 class GATTApplication(ServiceInterface):
     def __init__(self):
@@ -73,16 +76,16 @@ class GATTCharacteristic(ServiceInterface):
         self._clients = set()
         self.notifying = False
 
-    @dbus.service.signal(DBUS_PROP_IFACE, signature='sa{sv}as')
-    def PropertiesChanged(self, interface, changed, invalidated):
+    @signal()
+    def PropertiesChanged(self, interface: 's', changed: 'a{sv}', invalidated: 'as'):
         pass
 
     def notify_value(self, value):
         if not self.notifying:
             return
         self.PropertiesChanged(
-            GATT_CHRC_IFACE,
-            {'Value': value},
+            'org.bluez.GattCharacteristic1',
+            {'Value': Variant('ay', value)},
             []
         )
 
