@@ -132,6 +132,10 @@ async def setup_bluez():
             self._type = 'peripheral'
             self._service_uuids = ["12345678-1234-5678-1234-56789abcdef0"]
             self._local_name = 'RaspberryPiAudio'
+            self._includes = []
+            self._manufacturer_data = {}
+            self._service_data = {}
+            self._discoverable = True
             
         @dbus_property(access=PropertyAccess.READ)
         def Type(self) -> 's':
@@ -144,8 +148,28 @@ async def setup_bluez():
         @dbus_property(access=PropertyAccess.READ)
         def LocalName(self) -> 's':
             return self._local_name
+
+        @dbus_property(access=PropertyAccess.READ)
+        def Includes(self) -> 'as':
+            return self._includes
+
+        @dbus_property(access=PropertyAccess.READ)
+        def ManufacturerData(self) -> 'a{qv}':
+            return self._manufacturer_data
+
+        @dbus_property(access=PropertyAccess.READ)
+        def ServiceData(self) -> 'a{sv}':
+            return self._service_data
+
+        @dbus_property(access=PropertyAccess.READ)
+        def Discoverable(self) -> 'b':
+            return self._discoverable
+
+        @method()
+        def Release(self):
+            pass
     
-    # Update introspection data to include pairing properties
+    # Update introspection data
     adapter_introspection = '''
         <node>
             <interface name="org.bluez.Adapter1">
@@ -177,13 +201,14 @@ async def setup_bluez():
         </node>
     '''
     
-    # Get proxy object with introspection data
-    proxy_obj = bus.get_proxy_object('org.bluez', adapter_path, adapter_introspection)
-    properties = proxy_obj.get_interface('org.freedesktop.DBus.Properties')
-    le_advertising = proxy_obj.get_interface('org.bluez.LEAdvertisingManager1')
-    
     try:
-        # Power on and configure adapter
+        # First make sure adapter is powered off
+        proxy_obj = bus.get_proxy_object('org.bluez', adapter_path, adapter_introspection)
+        properties = proxy_obj.get_interface('org.freedesktop.DBus.Properties')
+        await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', False))
+        await asyncio.sleep(1)  # Give it a moment
+        
+        # Now configure adapter
         await properties.call_set('org.bluez.Adapter1', 'Powered', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'Discoverable', Variant('b', True))
         await properties.call_set('org.bluez.Adapter1', 'DiscoverableTimeout', Variant('u', 0))
@@ -193,9 +218,13 @@ async def setup_bluez():
         # Create and register advertisement
         advertisement = Advertisement()
         bus.export('/org/bluez/example/advertisement0', advertisement)
+        
+        le_advertising = proxy_obj.get_interface('org.bluez.LEAdvertisingManager1')
         await le_advertising.call_register_advertisement('/org/bluez/example/advertisement0', {})
         
         logger.info("Bluetooth LE advertising enabled with custom service UUID")
+        
+        # Rest of the setup...
     except Exception as e:
         logger.error(f"Failed to configure advertising: {e}")
         raise
